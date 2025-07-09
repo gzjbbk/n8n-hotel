@@ -1,0 +1,15 @@
+-- Create n8n database and user
+CREATE DATABASE n8n;
+CREATE USER n8n WITH PASSWORD 'n8n_secure_password';
+GRANT ALL PRIVILEGES ON DATABASE n8n TO n8n;
+
+-- Connect to n8n database and grant schema permissions
+\c n8n;
+GRANT ALL ON SCHEMA public TO n8n;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO n8n;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO n8n;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO n8n;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO n8n;
+
+-- Create extensions if needed
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

@@ -1,0 +1,330 @@
+{
+  "name": "Hotel Booking Notification System",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "booking",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-booking",
+      "name": "Webhook - New Booking",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "booking-webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "booking-type",
+              "leftValue": "={{ $json.booking_type }}",
+              "rightValue": "premium",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-premium",
+      "name": "Is Premium Booking?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "guest-name",
+              "name": "guest_name",
+              "value": "={{ $json.guest.name }}",
+              "type": "string"
+            },
+            {
+              "id": "room-number",
+              "name": "room_number",
+              "value": "={{ $json.room.number }}",
+              "type": "string"
+            },
+            {
+              "id": "check-in",
+              "name": "check_in_date",
+              "value": "={{ $json.dates.check_in }}",
+              "type": "string"
+            },
+            {
+              "id": "check-out",
+              "name": "check_out_date",
+              "value": "={{ $json.dates.check_out }}",
+              "type": "string"
+            },
+            {
+              "id": "total-amount",
+              "name": "total_amount",
+              "value": "={{ $json.payment.total }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-booking-data",
+      "name": "Set Booking Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "nodeCredentialType": "httpBasicAuth",
+        "requestMethod": "POST",
+        "url": "https://api.telegram.org/bot{{ $vars.telegram_bot_token }}/sendMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "{{ $vars.telegram_chat_id }}"
+            },
+            {
+              "name": "text",
+              "value": "🏨 *New Hotel Booking*\n\n👤 Guest: {{ $json.guest_name }}\n🚪 Room: {{ $json.room_number }}\n📅 Check-in: {{ $json.check_in_date }}\n📅 Check-out: {{ $json.check_out_date }}\n💰 Total: ${{ $json.total_amount }}\n\n{{ $json.booking_type === 'premium' ? '⭐ Premium Booking' : '✅ Standard Booking' }}"
+            },
+            {
+              "name": "parse_mode",
+              "value": "Markdown"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "telegram-notification",
+      "name": "Send Telegram Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "nodeCredentialType": "httpBasicAuth",
+        "requestMethod": "POST",
+        "url": "https://api.emailjs.com/api/v1.0/email/send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "service_id",
+              "value": "{{ $vars.emailjs_service_id }}"
+            },
+            {
+              "name": "template_id",
+              "value": "{{ $vars.emailjs_template_id }}"
+            },
+            {
+              "name": "user_id",
+              "value": "{{ $vars.emailjs_user_id }}"
+            },
+            {
+              "name": "template_params",
+              "value": "={{ { \"guest_name\": $json.guest_name, \"room_number\": $json.room_number, \"check_in_date\": $json.check_in_date, \"check_out_date\": $json.check_out_date, \"total_amount\": $json.total_amount, \"booking_type\": $json.booking_type } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "email-confirmation",
+      "name": "Send Email Confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "nodeCredentialType": "httpBasicAuth",
+        "requestMethod": "POST",
+        "url": "{{ $vars.hotel_pms_api_url }}/bookings",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $vars.pms_api_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "guest_name",
+              "value": "{{ $json.guest_name }}"
+            },
+            {
+              "name": "room_number",
+              "value": "{{ $json.room_number }}"
+            },
+            {
+              "name": "check_in_date",
+              "value": "{{ $json.check_in_date }}"
+            },
+            {
+              "name": "check_out_date",
+              "value": "{{ $json.check_out_date }}"
+            },
+            {
+              "name": "total_amount",
+              "value": "{{ $json.total_amount }}"
+            },
+            {
+              "name": "booking_type",
+              "value": "{{ $json.booking_type }}"
+            },
+            {
+              "name": "status",
+              "value": "confirmed"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "update-pms",
+      "name": "Update PMS System",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"success\": true, \"message\": \"Booking processed successfully\", \"booking_id\": $json.booking_id } }}"
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1560, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - New Booking": {
+      "main": [
+        [
+          {
+            "node": "Is Premium Booking?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Premium Booking?": {
+      "main": [
+        [
+          {
+            "node": "Set Booking Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Booking Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Booking Data": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Telegram Notification": {
+      "main": [
+        [
+          {
+            "node": "Send Email Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Update PMS System",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update PMS System": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1"
+}

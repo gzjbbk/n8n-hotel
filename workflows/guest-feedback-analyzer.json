@@ -1,0 +1,420 @@
+{
+  "name": "Guest Feedback Analyzer with AI",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute",
+              "minute": 30
+            }
+          ]
+        },
+        "feedUrl": "{{ $vars.feedback_api_url }}/new-reviews"
+      },
+      "id": "rss-trigger",
+      "name": "Check New Reviews",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "review-id",
+              "name": "review_id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "guest-name",
+              "name": "guest_name",
+              "value": "={{ $json.guest_name }}",
+              "type": "string"
+            },
+            {
+              "id": "review-text",
+              "name": "review_text",
+              "value": "={{ $json.review }}",
+              "type": "string"
+            },
+            {
+              "id": "rating",
+              "name": "rating",
+              "value": "={{ $json.rating }}",
+              "type": "number"
+            },
+            {
+              "id": "room-number",
+              "name": "room_number",
+              "value": "={{ $json.room_number }}",
+              "type": "string"
+            },
+            {
+              "id": "date",
+              "name": "review_date",
+              "value": "={{ $json.date }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-review-data",
+      "name": "Set Review Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "nodeCredentialType": "httpBasicAuth",
+        "requestMethod": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $vars.openai_api_key }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gpt-3.5-turbo"
+            },
+            {
+              "name": "messages",
+              "value": "={{ [{ \"role\": \"system\", \"content\": \"You are a hotel feedback analyzer. Analyze the guest review and provide: 1) Sentiment (positive/negative/neutral), 2) Key topics mentioned, 3) Actionable insights, 4) Priority level (high/medium/low). Return JSON format.\" }, { \"role\": \"user\", \"content\": \"Guest review: \" + $json.review_text + \". Rating: \" + $json.rating + \"/5\" }] }}"
+            },
+            {
+              "name": "temperature",
+              "value": 0.3
+            },
+            {
+              "name": "max_tokens",
+              "value": 500
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ai-analysis",
+      "name": "AI Review Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse AI response\nconst aiResponse = JSON.parse($input.first().json.choices[0].message.content);\nconst reviewData = $input.first().json;\n\n// Combine data\nconst result = {\n  ...reviewData,\n  ai_analysis: {\n    sentiment: aiResponse.sentiment,\n    topics: aiResponse.topics,\n    insights: aiResponse.insights,\n    priority: aiResponse.priority\n  },\n  needs_attention: aiResponse.priority === 'high' || aiResponse.sentiment === 'negative'\n};\n\nreturn result;"
+      },
+      "id": "process-analysis",
+      "name": "Process AI Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "needs-attention",
+              "leftValue": "={{ $json.needs_attention }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-needs-attention",
+      "name": "Needs Attention?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "nodeCredentialType": "httpBasicAuth",
+        "requestMethod": "POST",
+        "url": "https://api.slack.com/api/chat.postMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $vars.slack_bot_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "channel",
+              "value": "{{ $vars.slack_channel_id }}"
+            },
+            {
+              "name": "text",
+              "value": "🚨 *Urgent Guest Review Alert*"
+            },
+            {
+              "name": "blocks",
+              "value": "={{ [{ \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"🚨 *Urgent Guest Review Alert*\\n\\n*Guest:* \" + $json.guest_name + \"\\n*Room:* \" + $json.room_number + \"\\n*Rating:* \" + $json.rating + \"/5\\n*Sentiment:* \" + $json.ai_analysis.sentiment + \"\\n*Priority:* \" + $json.ai_analysis.priority } }, { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Review:*\\n\" + $json.review_text } }, { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*AI Insights:*\\n\" + $json.ai_analysis.insights } }, { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Topics:* \" + $json.ai_analysis.topics.join(\", \") } }] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "slack-alert",
+      "name": "Send Slack Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "nodeCredentialType": "httpBasicAuth",
+        "requestMethod": "POST",
+        "url": "{{ $vars.crm_api_url }}/guest-feedback",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $vars.crm_api_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "review_id",
+              "value": "{{ $json.review_id }}"
+            },
+            {
+              "name": "guest_name",
+              "value": "{{ $json.guest_name }}"
+            },
+            {
+              "name": "room_number",
+              "value": "{{ $json.room_number }}"
+            },
+            {
+              "name": "rating",
+              "value": "{{ $json.rating }}"
+            },
+            {
+              "name": "review_text",
+              "value": "{{ $json.review_text }}"
+            },
+            {
+              "name": "ai_analysis",
+              "value": "={{ $json.ai_analysis }}"
+            },
+            {
+              "name": "processed_date",
+              "value": "={{ new Date().toISOString() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "update-crm",
+      "name": "Update CRM System",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1340, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "nodeCredentialType": "httpBasicAuth",
+        "requestMethod": "POST",
+        "url": "{{ $vars.analytics_api_url }}/feedback-metrics",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $vars.analytics_api_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "date",
+              "value": "={{ $json.review_date }}"
+            },
+            {
+              "name": "rating",
+              "value": "{{ $json.rating }}"
+            },
+            {
+              "name": "sentiment",
+              "value": "{{ $json.ai_analysis.sentiment }}"
+            },
+            {
+              "name": "topics",
+              "value": "={{ $json.ai_analysis.topics }}"
+            },
+            {
+              "name": "priority",
+              "value": "{{ $json.ai_analysis.priority }}"
+            },
+            {
+              "name": "room_number",
+              "value": "{{ $json.room_number }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "analytics-update",
+      "name": "Update Analytics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1560, 300]
+    }
+  ],
+  "connections": {
+    "Check New Reviews": {
+      "main": [
+        [
+          {
+            "node": "Set Review Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Review Data": {
+      "main": [
+        [
+          {
+            "node": "AI Review Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Review Analysis": {
+      "main": [
+        [
+          {
+            "node": "Process AI Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process AI Analysis": {
+      "main": [
+        [
+          {
+            "node": "Needs Attention?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Attention?": {
+      "main": [
+        [
+          {
+            "node": "Send Slack Alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Update CRM System",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update CRM System",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Slack Alert": {
+      "main": [
+        [
+          {
+            "node": "Update Analytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update CRM System": {
+      "main": [
+        [
+          {
+            "node": "Update Analytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1"
+}
